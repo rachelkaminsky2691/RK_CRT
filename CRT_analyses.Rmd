@@ -1,0 +1,450 @@
+---
+title: "Code for analyzing conditionally rare taxa in soils"
+author: "Rachel Kaminsky"
+date: "6 July 2017"
+output: html_document
+---
+##Summary 
+R code for analyzing the contribution of conditionally rare taxa to prokaryotic populations (Kaminsky and Morales 2017)
+
+###Load packages
+```{r}
+library(ggplot2)
+library(ggthemes)
+library(vegan)
+library(phyloseq)
+```
+
+###Set working directory and add files
+```{r, cache = TRUE, cache.lazy=FALSE}
+setwd("/Your_FilePath")
+otu <- paste("otu.biom", sep = "")
+map <- paste("map.txt", sep = "")
+otu <- import_biom(otu)
+map <- import_qiime_sample_data(map)
+mm <- merge_phyloseq(map,otu)
+```
+
+###Remove OTUs that aren't present in at least one sample, confirm all taxa > 0
+```{r, cache = TRUE, cache.lazy=FALSE}
+mm_rm = prune_taxa(taxa_sums(mm) > 0, mm)
+any(taxa_sums(mm)== 0)
+```
+
+###Divide counts by ten, remove zeros
+```{r, cache = TRUE, cache.lazy=FALSE}
+mm_10  = transform_sample_counts(mm, function(x) x / 10) 
+mm_r  = transform_sample_counts(mm_10, round )
+mm_r = prune_taxa(taxa_sums(mm_r) > 0, mm_r)
+any(taxa_sums(mm_r)== 0)
+```
+
+###Rename ranks
+```{r, cache = TRUE, cache.lazy=FALSE}
+colnames(tax_table(mm_r)) = c("Domain", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+```
+
+##For time-responsive CRT:
+
+###Subset site-level data (using site AV as an example, so must repeat this 23 more times)
+```{r}
+av=as.vector(sample_data(mm_r) $Site=="AV")
+av=prune_samples(av, mm_r)
+av=prune_taxa(taxa_sums(av)>0, av)
+```
+
+###Make OTU table that averages reads from site replicates under each time point 
+```{r, cache = TRUE, cache.lazy=FALSE}
+speciesList <- tapply(sample_names(av), get_variable(av, "SampleTP"), c)
+speciesPhyseq <- lapply(speciesList, prune_samples, av)
+speciesOTUtable <- lapply(speciesPhyseq,otu_table)
+speciesAvg <- lapply(speciesOTUtable,rowMeans)
+pooledOTUtable = t(do.call(rbind,speciesAvg)) 
+pooledOTUtable = data.frame(OTU=row.names(pooledOTUtable),pooledOTUtable)
+
+write.table(pooledOTUtable, "av_tp_otu.txt", quote = FALSE, row.names = FALSE, sep = "\t")
+```
+
+####Convert to biom in qiime
+
+###Import biom file, add metadata and taxonomy
+```{r}
+av_tp_biom <- paste("av_tp_otu.biom", sep = "")
+av_tp_biom <- import_biom(av_tp_biom)
+av_tp_map <- paste("MM_All_byTP_mapping_R.txt", sep = "")
+av_tp_map <- import_qiime_sample_data(av_tp_map)
+av_tp <- merge_phyloseq(av_tp_biom, tax_table(av), av_tp_map)
+```
+
+###Round counts
+```{r}
+av_tp_r  = transform_sample_counts(av_tp, round)
+```
+
+###Plot rank abundance curve (figure s2)
+```{r}
+library(dplyr)
+phyloTemp = transform_sample_counts(av_tp_r, function(x) 1e+02 * x/sum(x))
+clusterData = psmelt(phyloTemp)
+clusterData = filter(clusterData,Abundance > 0)
+clusterAgg = aggregate(Abundance ~ OTU + Phylum,data=clusterData,mean)
+clusterAgg = clusterAgg[order(-clusterAgg$Abundance),]
+ggplot(clusterAgg,aes(x=reorder(OTU,-Abundance),y=Abundance)) +
+    geom_point(aes(color=Phylum),size=3) + 
+    theme(axis.ticks = element_blank(), axis.text.x = element_blank()) +
+    scale_y_log10()
+```
+
+####Use rank abundance curve to choose a cutoff for the rare biosphere
+
+###Get CRT
+```{r}
+av_tp_r_dat <- data.frame(otu_table(av_tp_r))
+write.table(av_tp_r_dat, "av_tp_r_otu.txt", quote = FALSE, sep = "\t")
+
+library(TSA)
+source("CRT_Functions_v1.1.R")
+SimpleRareToPrev.f(otu_fp="av_tp_r_otu.txt", abund_thresh=0.0001, abund_thresh_ALL=FALSE, b_thresh=0.90, rdp_lastcol=FALSE)
+```
+
+####Copy OTU column from results file, paste into a new spreadsheet and save as a csv
+
+###Prune original OTU table to only include CRT, save to directory 
+```{r, cache = TRUE, cache.lazy=FALSE}
+speciesList <- tapply(sample_names(av), get_variable(av, "SampleID"), c)
+speciesPhyseq <- lapply(speciesList, prune_samples, av)
+speciesOTUtable <- lapply(speciesPhyseq,otu_table)
+speciesAvg <- lapply(speciesOTUtable,rowMeans)
+pooledOTUtable = t(do.call(rbind,speciesAvg)) 
+pooledOTUtable = data.frame(OTU=row.names(pooledOTUtable),pooledOTUtable)
+avcrt <- read.csv("AV_TP_CRT.csv", header = T)
+colnames(avcrt)[1] <- "OTU"
+pOTU.crt = merge(pooledOTUtable, avcrt, by.x = "OTU")
+ 
+write.table(pOTU.crt, "av_tp_sid_crt_otu.txt", quote = FALSE, row.names = FALSE, sep = "\t")
+```
+
+####Convert to biom in qiime
+
+###Import CRT biom files, add metadata and taxonomy
+```{r}
+av_tp_crt_biom <- paste("av_tp_sid_crt_otu.biom", sep = "")
+av_tp_crt_biom <- import_biom(av_tp_crt_biom)
+av_tp_crt <- merge_phyloseq(av_tp_crt_biom, map, tax_table(av))
+```
+
+###Make Bray Curtis distance matrices
+```{r}
+##Time CRT only
+av_tp_crt_dist <- distance(av_tp_crt, "bray")
+
+##Whole community + Time CRT
+av_dist <- distance(av, "bray")
+
+##Whole community - Time CRT
+avtpcrt <- read.csv("AV_TP_CRT.csv", header = T) ###Read in list of CRT that need to be removed
+avtpcrt_v <- avcrt[["OTUID"]] ###Make a vector from column of interest
+allTaxa <- taxa_names(av) ###Pull out taxa list from phyloseq object
+allTaxa <- allTaxa[!(allTaxa %in% avtpcrt_v)] ###Remove CRT from list
+av_notpcrt <- prune_taxa(allTaxa, av) ###Prune OTU table to exclude CRT
+av_notpcrt_dist <- distance(av_notpcrt, "bray") ###make distance matrix
+```
+
+###Mantel tests
+```{r}
+##Whole community + CRT v. Time CRT only
+mantel(av_dist, av_tp_crt_dist, method = "pearson")
+
+##Whole community + CRT v. Whole community - Time CRT only
+mantel(av_dist, av_notpcrt_dist, method = "pearson")
+
+```
+
+###ANOSIM tests
+```{r}
+##Time CRT
+avtp_group = get_variable(av_tp_crt, "TimePoint")
+avtp_ano = anosim(av_tp_crt_dist, avtp_group)
+avtp_ano$signif
+avtp_ano$statistic
+
+##Whole community + CRT
+av_group = get_variable(av, "TimePoint")
+av_ano = anosim(av_dist, av_group)
+av_ano$signif
+av_ano$statistic
+
+##Plot results for supplementary figures 4-5
+plot(avtp_ano)
+plot(av_ano)
+```
+
+####Outputs from Mantel and ANOSIM entered into a CSV
+
+##Make Figure 1
+```{r}
+##Mantel boxplot
+mantel <- read.csv("Mantel_T.csv")
+p <- ggplot(mantel, aes(Community, Mantel_r)) + geom_boxplot() + theme_minimal() + geom_point(aes(color = pH, shape = LandUse), size = 5, position = "jitter") + scale_color_gradient(low = "gray0", high = "paleturquoise1") + theme(text = element_text(size=25), axis.title.x = element_blank()) +  scale_x_discrete(labels="CRT v. Whole Commmunity") + labs(y = expression ("Mantel"~R^2)) + scale_shape_discrete(name  ="Land Use")
+
+##ANOSIM boxplots
+ano <- read.csv("Anosim_T.csv")
+p1 <- ggplot(ano, aes(Community, Anosimr)) + geom_boxplot() + theme_minimal() + geom_point(aes(color = pH, shape = LandUse), size = 5, position = "jitter") + scale_color_gradient(low = "gray0", high = "paleturquoise1") + theme(text = element_text(size=25), axis.title.x = element_blank()) + labs(y = expression ("ANOSIM"~R^2)) + scale_shape_discrete(name ="Land Use")
+
+```
+
+##For space-responsive CRT:
+
+##Make OTU table that combines site replicates under each sample, across time points 
+```{r, cache = TRUE, cache.lazy=FALSE}
+speciesList <- tapply(sample_names(mm_r), get_variable(mm_r, "Sample"), c)
+speciesPhyseq <- lapply(speciesList, prune_samples, mm_r)
+speciesOTUtable <- lapply(speciesPhyseq,otu_table)
+speciesAvg <- lapply(speciesOTUtable,rowMeans)
+pooledOTUtable = t(do.call(rbind,speciesAvg)) 
+pooledOTUtable = data.frame(OTU=row.names(pooledOTUtable),pooledOTUtable)
+
+write.table(pooledOTUtable, "mm_r_sam_otu.txt", quote = FALSE, row.names = FALSE, sep = "\t")
+```
+
+####Convert to biom in qiime
+
+###Import biom file, add metadata and taxonomy
+```{r}
+mm_r_sam_biom <- paste("mm_r_sam_otu.biom", sep = "")
+mm_r_sam_biom <- import_biom(mm_r_sam_biom)
+mm_r_sam_map <- paste("MM_All_mapping_BySample_R.txt", sep = "")
+mm_r_sam_map <- import_qiime_sample_data(mm_r_sam_map)
+mm_r_sam <- merge_phyloseq(mm_r_sam_biom, tax_table(mm_r), mm_r_sam_map)
+```
+
+###Round counts
+```{r}
+mm_r_sam_r  = transform_sample_counts(mm_r_sam, round)
+```
+
+###Plot rank abundance curve (figure s3)
+```{r}
+library(dplyr)
+phyloTemp = transform_sample_counts(mm_r_sam_r, function(x) 1e+02 * x/sum(x))
+clusterData = psmelt(phyloTemp)
+clusterData = filter(clusterData,Abundance > 0)
+clusterAgg = aggregate(Abundance ~ OTU + Phylum,data=clusterData,mean)
+clusterAgg = clusterAgg[order(-clusterAgg$Abundance),]
+ggplot(clusterAgg,aes(x=reorder(OTU,-Abundance),y=Abundance)) +
+    geom_point(aes(color=Phylum),size=3) + 
+    theme(axis.ticks = element_blank(), axis.text.x = element_blank()) +
+    scale_y_log10()
+```
+
+####Use rank abundance curve to choose a cutoff for the rare biosphere
+
+###Get CRT
+```{r}
+mm_r_sam_r_dat <- data.frame(otu_table(mm_r_sam_r))
+write.table(mm_r_sam_r_dat, "mm_r_sam_r_otu.txt", quote = FALSE,  sep = "\t")
+
+SimpleRareToPrev.f(otu_fp="mm_r_sam_r_otu.txt", abund_thresh=0.0001, abund_thresh_ALL=FALSE, b_thresh=0.90, rdp_lastcol=FALSE)
+```
+
+####Copy OTU column from results file, paste into a new spreadsheet and save as a csv
+
+###Prune OTU table to only include CRT, save to directory 
+```{r, cache = TRUE, cache.lazy=FALSE}
+speciesList2 <- tapply(sample_names(mm_r), get_variable(mm_r, "SampleID"), c)
+speciesPhyseq2 <- lapply(speciesList2, prune_samples, mm_r)
+speciesOTUtable2 <- lapply(speciesPhyseq2,otu_table)
+speciesAvg2 <- lapply(speciesOTUtable2,rowMeans)
+pooledOTUtable2 = t(do.call(rbind,speciesAvg2)) 
+pooledOTUtable2 = data.frame(OTU=row.names(pooledOTUtable2),pooledOTUtable2)
+mm_r_sam_crt <- read.csv("MM_R_SAM_CRT.csv", header = T)
+colnames(mm_r_sam_crt)[1] <- "OTU"
+pOTU.crt = merge(pooledOTUtable2, mm_r_sam_crt, by.x = "OTU")
+
+write.table(pOTU.crt, "mm_r_sam_sid_crt.txt", quote = FALSE, row.names = FALSE, sep = "\t")
+```
+
+####Convert to biom in qiime
+
+###Import CRT biom file, add metadata and taxonomy
+```{r}
+mm_r_sam_crt_biom <- paste("mm_r_sam_sid_crt.biom", sep = "")
+mm_r_sam_crt_biom <- import_biom(mm_r_sam_crt_biom)
+mm_r_sam_crt <- merge_phyloseq(sample_data(mm_r),mm_r_sam_crt_biom)
+mm_r_sam_crt <- merge_phyloseq(mm_r_sam_crt, tax_table(mm_r))
+```
+
+###Make Bray Curtis distance matrices
+```{r}
+##Whole community + CRT
+mm_r_dist <- distance(mm_r, "bray")
+
+##Space CRT only
+mm_r_sam_crt_dist <- distance(mm_r_sam_crt, "bray")
+
+##Whole community - Space CRT
+samcrt <- read.csv("MM_R_SAM_CRT.csv", header = T) ###Read in list of CRT that need to be removed
+samcrt_v <- samcrt[["OTUID"]] ###Make a vector from column of interest
+allTaxa <- taxa_names(mm_r) ###Pull out taxa list from phyloseq object
+allTaxa <- allTaxa[!(allTaxa %in% samcrt_v)] ###Remove CRT from list
+mm_r_nosamcrt <- prune_taxa(allTaxa, mm_r) ###Prune OTU table to exclude CRT
+mm_r_nosamcrt_dist <- distance(mm_r_nosamcrt, "bray") ###make distance matrix
+```
+
+###Mantel tests
+```{r}
+##Whole community + CRT v. Space CRT only
+mantel(mm_r_dist, mm_r_sam_crt_dist, method = "pearson")
+
+##Whole community + CRT v. Whole community - Space CRT only
+mantel(mm_r_dist, mm_r_nosamcrt_dist, method = "pearson")
+
+```
+
+###DCA plots showing relationship between CRT, whole community and spatial factors (figure s6)
+```{r}
+##Make ordinations
+mm_r_sam_crt_dca = ordinate(mm_r_sam_crt, "DCA", "bray") ###CRT
+mm_r_dca = ordinate(mm_r, "DCA", "bray") ###whole community
+
+##pH/Land Use DCAs
+p2 = plot_ordination(mm_r_sam_crt, mm_r_sam_crt_dca, color = "pH", shape = "LandUse") + theme_few() + theme(text = element_text(size=25), axis.text.x = element_text(angle = 90, hjust = 1)) + scale_color_gradient(low = "thistle", high = "skyblue3") + geom_point(size = 5) + scale_shape_discrete(name ="Land Use") + ggtitle("CRT")
+
+p3 = plot_ordination(mm_r, mm_r_dca, color = "pH", shape = "LandUse") + theme_few() + theme(text = element_text(size=25), axis.text.x = element_text(angle = 90, hjust = 1)) + scale_color_gradient(low = "thistle", high = "skyblue3") + geom_point(size = 5) + scale_shape_discrete(name ="Land Use") + ggtitle("Whole Community")
+
+##Soil Order DCAs
+p4 = plot_ordination(mm_r_sam_crt, mm_r_sam_crt_dca, color = "SoilOrder") + theme_few() + theme(text = element_text(size=25), axis.text.x = element_text(angle = 90, hjust = 1)) + geom_point(size = 5) + scale_color_discrete(name = "Soil Order") + ggtitle("CRT") 
+
+p5 = plot_ordination(mm_r, mm_r_dca, color = "SoilOrder") + theme_few() + theme(text = element_text(size=25), axis.text.x = element_text(angle = 90, hjust = 1)) + geom_point(size = 5) + scale_color_discrete(name = "Soil Order") + ggtitle("Whole Community") 
+```
+
+###ANOSIM tests against land use and soil order (figure s7, table s2)
+```{r}
+##CRT v. Land Use
+mm_r_crtlu_group = get_variable(mm_r_sam_crt, "LandUse")
+mm_r_crtlu_ano = anosim(mm_r_sam_crt_dist, mm_r_crtlu_group)
+mm_r_crtlu_ano$signif
+mm_r_crtlu_ano$statistic
+
+##Whole community v. Land Use
+mm_r_lu_group = get_variable(mm_r, "LandUse")
+mm_r_lu_ano = anosim(mm_r_dist, mm_r_lu_group)
+mm_r_lu_ano$signif
+mm_r_lu_ano$statistic
+
+##CRT v. Soil Order
+mm_r_crtso_group = get_variable(mm_r_sam_crt, "SoilOrder")
+mm_r_crtso_ano = anosim(mm_r_sam_crt_dist, mm_r_crtso_group)
+mm_r_crtso_ano$signif
+mm_r_crtso_ano$statistic
+
+##Whole community v. Soil Order
+mm_r_so_group = get_variable(mm_r_, "SoilOrder")
+mm_r_so_ano = anosim(mm_r_dist, mm_r_so_group)
+mm_r_so_ano$signif
+mm_r_so_ano$statistic
+
+##Plot results for supplementary figure 7
+plot(mm_r_crtlu_ano)
+plot(mm_r_lu_ano)
+plot(mm_r_crtso_ano)
+plot(mm_r_so_ano)
+```
+
+###Mantel tests against pH (table s2)
+```{r}
+#Make pH distance matrix, will be same for both CRT and whole community
+mm_r_sd <- data.frame(mm_r_map)
+mm_r_ph_dist <- dist(mm_r_sd$pH, method = "euclidean")
+mm_r_ph_dist <- as.matrix(mm_r_ph_dist)
+
+#CRT v. pH
+mantel(mm_r_sam_crt_dist, mm_r_ph_dist, method = "pearson")
+
+#Whole community v. pH
+mantel(mm_r_dist, mm_r_ph_dist, method = "pearson")
+```
+
+###Correlations between individual CRTs and spatiotemporal factors
+```{r}
+library(ALDEx2)
+
+##Time
+av_tp_crt_otu <- data.frame(otu_table(av_tp_crt)) ###Make OTU table into data frame
+av_meta <- data.frame(sample_data(av)) ###Make sample data into data frame
+
+avtpcrt.aldex.clr <- aldex.clr(av_tp_crt_otu, mc.samples = 128) ###generate monte carlo samples, log transform data 
+avtpcrt.time.aldex.glm <- aldex.glm(avtpcrt.aldex.clr, av_meta$TimePoint) ###generate correlations between OTUs and time
+
+##Space
+mm_r_sam_crt_otu <- data.frame(otu_table(mm_r_sam_crt)) ###Make OTU table into data frame
+meta <- data.frame(map) ###Make sample data into data frame
+
+mmrsam.aldex.clr <- aldex.clr(mm_r_sam_crt_otu, mc.samples = 128) ###generate monte carlo samples, log transform data 
+mmrsam.lu.aldex.glm <- aldex.glm(mmrsam.aldex.clr, meta$LandUse) ###generate correlations between OTUs and land use
+mmrsam.so.aldex.glm <- aldex.glm(mmrsam.aldex.clr, meta$SoilOrder) ###generate correlations between OTUs and soil order
+mmrsam.pH.aldex.corr <- aldex.corr(mmrsam.aldex.clr, meta$pH) ###generate correlations between OTUs and pH
+```
+
+###Link OTUs to sapatiotemporal factors to plot
+```{r}
+##Convert to relative abundance of a sample
+mm_r_sam_crt_r  = transform_sample_counts(mm_r_sam_crt, function(x) x / sum(x))
+
+##Average samples across Land Use, convert to data frame, attach taxonomy and prune to only include significantly correlated CRT from ALDEx2 output
+speciesList1 <- tapply(sample_names(mm_r_sam_crt_r), get_variable(mm_r_sam_crt_r, "LandUse"), c)
+speciesPhyseq1 <- lapply(speciesList1, prune_samples, mm_r_sam_crt_r)
+speciesOTUtable1 <- lapply(speciesPhyseq1,otu_table)
+speciesAvg1 <- lapply(speciesOTUtable1,rowMeans)
+pooledOTUtable1 = t(do.call(rbind,speciesAvg1)) 
+pooledOTUtable1 = data.frame(OTU=row.names(pooledOTUtable1),pooledOTUtable1)
+TT = tax_table(mm_r_sam_crt_r)
+TT = TT[, which(apply(!apply(TT, 2, is.na), 2, any))]
+tdf = data.frame(TT, OTU = taxa_names(mm_r_sam_crt_r))
+pOTUtax1 = merge(pooledOTUtable1, tdf, by.x = "OTU")
+sigluOTUs = read.csv("LU_Aldex.csv")
+pOTUtax1 = merge(pOTUtax1, sigluOTUs, by= "OTU")
+library(reshape2)
+pOTUtax1.m <- melt(pOTUtax1)
+write.csv(pOTUtax1.m, "LU_Aldex_melt.csv")
+
+##Repeat above for soil order and pH
+
+##Merge site-level phyloseq objects
+tp_crt <- merge(av_tp_crt, back_tp_crt...)
+##Convert to relative abundance of a sample
+tp_crt_r  = transform_sample_counts(tp_crt, function(x) x / sum(x))
+
+####Average samples across Time Point, convert to data frame, attach taxonomy and prune to only include significantly correlated CRT from ALDEx2 output-used most significant OTU from each site, as there were too many correalted OTUs to plot
+speciesList2 <- tapply(sample_names(tp_crt_r), get_variable(tp_crt_r, "TimePoint"), c)
+speciesPhyseq2 <- lapply(speciesList2, prune_samples, tp_crt_r)
+speciesOTUtable2 <- lapply(speciesPhyseq2,otu_table)
+speciesAvg2 <- lapply(speciesOTUtable2,rowMeans)
+pooledOTUtable2 = t(do.call(rbind,speciesAvg2)) 
+pooledOTUtable2 = data.frame(OTU=row.names(pooledOTUtable2),pooledOTUtable2)
+TT2 = tax_table(tp_crt_r)
+TT2 = TT2[, which(apply(!apply(TT2, 2, is.na), 2, any))]
+tdf2 = data.frame(TT2, OTU = taxa_names(tp_crt_r))
+pOTUtax2 = merge(pooledOTUtable2, tdf2, by.x = "OTU")
+sigtpOTUs = read.csv("TP_Aldex.csv")
+pOTUtax2 = merge(pOTUtax2, sigtpOTUs, by= "OTU")
+library(reshape2)
+pOTUtax2.m <- melt(pOTUtax2)
+write.csv(pOTUtax2.m, "TP_Aldex_melt.csv")
+```
+
+###Add column to csv file that has the lowest available taxonomic classification
+
+###Make Figure 2
+```{r}
+pOTUtaxm.m <- read.csv("LU_Aldex_melt.csv")
+name_order <- c("Dairy", "Sheep+Beef", "HighCountry")
+pOTUtaxm.m$LandUse <- factor(pOTUtaxm.m$LandUse, levels=name_order)
+g <- ggplot(subset(pOTUtaxm.m, Abundance >0), aes(x=LandUse, y=Taxon, color=Phylum))
+g <- g + geom_point(aes(size=Abundance)) + scale_color_manual(values = c("light coral", "springgreen3", "cyan3", "mediumpurple2")) + labs(size = "Relative Abundance") + scale_size(range = c(3, 13))
+g <- g + theme_minimal()
+g <- g + theme(text = element_text(size=25)) + scale_x_discrete(name= "Land Use", labels= c("Dairy", "Sheep + Beef", "High Country"))
+g <- g + guides(color = guide_legend(override.aes = list(size=5)), size = guide_legend(order=1))
+
+##Repeat above for soil order, time point and pH 
+```
