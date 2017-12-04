@@ -4,7 +4,7 @@ author: "Rachel Kaminsky"
 date: "6 July 2017"
 output: html_document
 ---
-R code for analyzing the contribution of conditionally rare taxa to prokaryotic populations (Kaminsky and Morales 2017)
+R code for analyzing the contribution of conditionally rare taxa to prokaryotic populations (Kaminsky and Morales 2018, also Chapter 6 of my PhD thesis)
 
 Load packages
 ```{r}
