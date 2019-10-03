@@ -4,7 +4,8 @@ author: "Rachel Kaminsky"
 date: "6 July 2017"
 output: html_document
 ---
-R code for analyzing the contribution of conditionally rare taxa to prokaryotic populations (Kaminsky and Morales 2018, also Chapter 6 of my PhD thesis)
+R code for analyzing the contribution of conditionally rare taxa to prokaryotic populations 
+(Kaminsky and Morales 2018, also Chapter 6 of my PhD thesis)
 
 Load packages
 ```{r}
@@ -103,7 +104,8 @@ write.table(av_tp_r_dat, "av_tp_r_otu.txt", quote = FALSE, sep = "\t")
 
 library(TSA)
 source("CRT_Functions_v1.1.R")
-SimpleRareToPrev.f(otu_fp="av_tp_r_otu.txt", abund_thresh=0.0001, abund_thresh_ALL=FALSE, b_thresh=0.90, rdp_lastcol=FALSE)
+SimpleRareToPrev.f(otu_fp="av_tp_r_otu.txt", abund_thresh=0.0001, 
+abund_thresh_ALL=FALSE, b_thresh=0.90, rdp_lastcol=FALSE)
 ```
 
 Copy OTU column from results file, paste into a new spreadsheet and save as a csv
@@ -120,7 +122,8 @@ avcrt <- read.csv("AV_TP_CRT.csv", header = T)
 colnames(avcrt)[1] <- "OTU"
 pOTU.crt = merge(pooledOTUtable, avcrt, by.x = "OTU")
  
-write.table(pOTU.crt, "av_tp_sid_crt_otu.txt", quote = FALSE, row.names = FALSE, sep = "\t")
+write.table(pOTU.crt, "av_tp_sid_crt_otu.txt", 
+quote = FALSE, row.names = FALSE, sep = "\t")
 ```
 
 Convert to biom in qiime
@@ -184,11 +187,20 @@ Make Figure 1
 ```{r}
 ##Mantel boxplot
 mantel <- read.csv("Mantel_T.csv")
-p <- ggplot(mantel, aes(Community, Mantel_r)) + geom_boxplot() + theme_minimal() + geom_point(aes(color = pH, shape = LandUse), size = 5, position = "jitter") + scale_color_gradient(low = "gray0", high = "paleturquoise1") + theme(text = element_text(size=25), axis.title.x = element_blank()) +  scale_x_discrete(labels="CRT v. Whole Commmunity") + labs(y = expression ("Mantel"~R^2)) + scale_shape_discrete(name  ="Land Use")
+p <- ggplot(mantel, aes(Community, Mantel_r)) + geom_boxplot() + 
+theme_minimal() + geom_point(aes(color = pH, shape = LandUse), 
+size = 5, position = "jitter") + scale_color_gradient(low = "gray0", high = "paleturquoise1")
++ theme(text = element_text(size=25), axis.title.x = element_blank())
++  scale_x_discrete(labels="CRT v. Whole Commmunity") + 
+labs(y = expression ("Mantel"~R^2)) + scale_shape_discrete(name  ="Land Use")
 
 ##ANOSIM boxplots
 ano <- read.csv("Anosim_T.csv")
-p1 <- ggplot(ano, aes(Community, Anosimr)) + geom_boxplot() + theme_minimal() + geom_point(aes(color = pH, shape = LandUse), size = 5, position = "jitter") + scale_color_gradient(low = "gray0", high = "paleturquoise1") + theme(text = element_text(size=25), axis.title.x = element_blank()) + labs(y = expression ("ANOSIM"~R^2)) + scale_shape_discrete(name ="Land Use")
+p1 <- ggplot(ano, aes(Community, Anosimr)) + geom_boxplot() + 
+theme_minimal() + geom_point(aes(color = pH, shape = LandUse), size = 5, position = "jitter")
++ scale_color_gradient(low = "gray0", high = "paleturquoise1") + 
+theme(text = element_text(size=25), axis.title.x = element_blank()) + 
+labs(y = expression ("ANOSIM"~R^2)) + scale_shape_discrete(name ="Land Use")
 
 ```
 
@@ -242,7 +254,8 @@ Get CRT
 mm_r_sam_r_dat <- data.frame(otu_table(mm_r_sam_r))
 write.table(mm_r_sam_r_dat, "mm_r_sam_r_otu.txt", quote = FALSE,  sep = "\t")
 
-SimpleRareToPrev.f(otu_fp="mm_r_sam_r_otu.txt", abund_thresh=0.0001, abund_thresh_ALL=FALSE, b_thresh=0.90, rdp_lastcol=FALSE)
+SimpleRareToPrev.f(otu_fp="mm_r_sam_r_otu.txt", abund_thresh=0.0001, 
+abund_thresh_ALL=FALSE, b_thresh=0.90, rdp_lastcol=FALSE)
 ```
 
 Copy OTU column from results file, paste into a new spreadsheet and save as a csv
@@ -306,14 +319,28 @@ mm_r_sam_crt_dca = ordinate(mm_r_sam_crt, "DCA", "bray") ###CRT
 mm_r_dca = ordinate(mm_r, "DCA", "bray") ###whole community
 
 ##pH/Land Use DCAs
-p2 = plot_ordination(mm_r_sam_crt, mm_r_sam_crt_dca, color = "pH", shape = "LandUse") + theme_few() + theme(text = element_text(size=25), axis.text.x = element_text(angle = 90, hjust = 1)) + scale_color_gradient(low = "thistle", high = "skyblue3") + geom_point(size = 5) + scale_shape_discrete(name ="Land Use") + ggtitle("CRT")
+p2 = plot_ordination(mm_r_sam_crt, mm_r_sam_crt_dca, color = "pH", shape = "LandUse") + 
+theme_few() + theme(text = element_text(size=25), 
+axis.text.x = element_text(angle = 90, hjust = 1)) + 
+scale_color_gradient(low = "thistle", high = "skyblue3") + geom_point(size = 5) + 
+scale_shape_discrete(name ="Land Use") + ggtitle("CRT")
 
-p3 = plot_ordination(mm_r, mm_r_dca, color = "pH", shape = "LandUse") + theme_few() + theme(text = element_text(size=25), axis.text.x = element_text(angle = 90, hjust = 1)) + scale_color_gradient(low = "thistle", high = "skyblue3") + geom_point(size = 5) + scale_shape_discrete(name ="Land Use") + ggtitle("Whole Community")
+p3 = plot_ordination(mm_r, mm_r_dca, color = "pH", shape = "LandUse") + 
+theme_few() + theme(text = element_text(size=25), 
+axis.text.x = element_text(angle = 90, hjust = 1)) + 
+scale_color_gradient(low = "thistle", high = "skyblue3") + 
+geom_point(size = 5) + scale_shape_discrete(name ="Land Use") + ggtitle("Whole Community")
 
 ##Soil Order DCAs
-p4 = plot_ordination(mm_r_sam_crt, mm_r_sam_crt_dca, color = "SoilOrder") + theme_few() + theme(text = element_text(size=25), axis.text.x = element_text(angle = 90, hjust = 1)) + geom_point(size = 5) + scale_color_discrete(name = "Soil Order") + ggtitle("CRT") 
+p4 = plot_ordination(mm_r_sam_crt, mm_r_sam_crt_dca, color = "SoilOrder") + 
+theme_few() + theme(text = element_text(size=25), 
+axis.text.x = element_text(angle = 90, hjust = 1)) + 
+geom_point(size = 5) + scale_color_discrete(name = "Soil Order") + ggtitle("CRT") 
 
-p5 = plot_ordination(mm_r, mm_r_dca, color = "SoilOrder") + theme_few() + theme(text = element_text(size=25), axis.text.x = element_text(angle = 90, hjust = 1)) + geom_point(size = 5) + scale_color_discrete(name = "Soil Order") + ggtitle("Whole Community") 
+p5 = plot_ordination(mm_r, mm_r_dca, color = "SoilOrder") + 
+theme_few() + theme(text = element_text(size=25), 
+axis.text.x = element_text(angle = 90, hjust = 1)) + 
+geom_point(size = 5) + scale_color_discrete(name = "Soil Order") + ggtitle("Whole Community") 
 ```
 
 ANOSIM tests against land use and soil order (figure s7, table s2)
@@ -389,7 +416,8 @@ Link OTUs to sapatiotemporal factors to plot
 ##Convert to relative abundance of a sample
 mm_r_sam_crt_r  = transform_sample_counts(mm_r_sam_crt, function(x) x / sum(x))
 
-##Average samples across Land Use, convert to data frame, attach taxonomy and prune to only include significantly correlated CRT from ALDEx2 output
+##Average samples across Land Use, convert to data frame, 
+attach taxonomy and prune to only include significantly correlated CRT from ALDEx2 output
 speciesList1 <- tapply(sample_names(mm_r_sam_crt_r), get_variable(mm_r_sam_crt_r, "LandUse"), c)
 speciesPhyseq1 <- lapply(speciesList1, prune_samples, mm_r_sam_crt_r)
 speciesOTUtable1 <- lapply(speciesPhyseq1,otu_table)
@@ -413,7 +441,10 @@ tp_crt <- merge(av_tp_crt, back_tp_crt...)
 ##Convert to relative abundance of a sample
 tp_crt_r  = transform_sample_counts(tp_crt, function(x) x / sum(x))
 
-####Average samples across Time Point, convert to data frame, attach taxonomy and prune to only include significantly correlated CRT from ALDEx2 output-used most significant OTU from each site, as there were too many correalted OTUs to plot
+####Average samples across Time Point, convert to data frame, 
+attach taxonomy and prune to only include significantly correlated 
+CRT from ALDEx2 output-used most significant OTU from each site, 
+as there were too many correalted OTUs to plot
 speciesList2 <- tapply(sample_names(tp_crt_r), get_variable(tp_crt_r, "TimePoint"), c)
 speciesPhyseq2 <- lapply(speciesList2, prune_samples, tp_crt_r)
 speciesOTUtable2 <- lapply(speciesPhyseq2,otu_table)
@@ -439,9 +470,12 @@ pOTUtaxm.m <- read.csv("LU_Aldex_melt.csv")
 name_order <- c("Dairy", "Sheep+Beef", "HighCountry")
 pOTUtaxm.m$LandUse <- factor(pOTUtaxm.m$LandUse, levels=name_order)
 g <- ggplot(subset(pOTUtaxm.m, Abundance >0), aes(x=LandUse, y=Taxon, color=Phylum))
-g <- g + geom_point(aes(size=Abundance)) + scale_color_manual(values = c("light coral", "springgreen3", "cyan3", "mediumpurple2")) + labs(size = "Relative Abundance") + scale_size(range = c(3, 13))
+g <- g + geom_point(aes(size=Abundance)) + 
+scale_color_manual(values = c("light coral", "springgreen3", "cyan3", "mediumpurple2")) + 
+labs(size = "Relative Abundance") + scale_size(range = c(3, 13))
 g <- g + theme_minimal()
-g <- g + theme(text = element_text(size=25)) + scale_x_discrete(name= "Land Use", labels= c("Dairy", "Sheep + Beef", "High Country"))
+g <- g + theme(text = element_text(size=25)) + 
+scale_x_discrete(name= "Land Use", labels= c("Dairy", "Sheep + Beef", "High Country"))
 g <- g + guides(color = guide_legend(override.aes = list(size=5)), size = guide_legend(order=1))
 
 ##Repeat above for soil order, time point and pH 
